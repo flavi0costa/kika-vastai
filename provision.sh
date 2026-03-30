@@ -9,7 +9,6 @@
 #   PROVISIONING_SCRIPT=https://raw.githubusercontent.com/flavi0costa/kika-vastai/main/provision.sh
 # ============================================================
 
-set -e
 LOG="/workspace/provision.log"
 exec > >(tee -a "$LOG") 2>&1
 
