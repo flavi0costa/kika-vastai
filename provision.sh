@@ -1,112 +1,155 @@
 #!/bin/bash
+# ============================================================
+#  PROJECTO KIKA \u2014 Wan 2.2 I2V 14B FP8
+#  Vast.ai A100 40GB | ComfyUI fresh clone
+#  https://github.com/flavi0costa/kika-vastai
+# ============================================================
 
 LOG="/workspace/provision.log"
 exec > >(tee -a "$LOG") 2>&1
 
-echo "================================================"
-echo "  PROJECTO KIKA — Setup LTX 2.3 I2V"
+echo "============================================================"
+echo "  PROJECTO KIKA \u2014 Wan 2.2 I2V 14B FP8"
 echo "  $(date)"
-echo "================================================"
+echo "============================================================"
 
-COMFYUI_DIR="/workspace/ComfyUI"
+set -e  # Para em qualquer erro
+
+COMFY="/workspace/ComfyUI"
+MODELS="$COMFY/models"
+HF="https://huggingface.co"
 
 # ------------------------------------------------------------
-# PASSO 1 — ComfyUI fresco (igual ao teu)
+# PASSO 1 \u2014 ComfyUI clone fresco (NUNCA git pull)
 # ------------------------------------------------------------
 echo ""
-echo "[1/5] Clone fresco ComfyUI..."
+echo "[1/6] Clone fresco ComfyUI..."
+
 cd /workspace
-
-if [ -d "$COMFYUI_DIR/models" ]; then
-    cp -r "$COMFYUI_DIR/models" /tmp/models_bak
-fi
-
-rm -rf "$COMFYUI_DIR"
-git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR"
-cd "$COMFYUI_DIR"
+rm -rf "$COMFY"
+git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFY"
+cd "$COMFY"
 pip install -q -r requirements.txt
 
-if [ -d "/tmp/models_bak" ]; then
-    cp -r /tmp/models_bak/* "$COMFYUI_DIR/models/" 2>/dev/null || true
-    rm -rf /tmp/models_bak
+echo "  \u2705 ComfyUI $(git rev-parse --short HEAD)"
+
+# ------------------------------------------------------------
+# PASSO 2 \u2014 Custom nodes essenciais
+# ------------------------------------------------------------
+echo ""
+echo "[2/6] Custom nodes..."
+
+cd "$COMFY/custom_nodes"
+
+# VideoHelperSuite \u2014 obrigat\u00f3rio para guardar MP4
+if [ ! -d "ComfyUI-VideoHelperSuite" ]; then
+    git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
+    pip install -q -r ComfyUI-VideoHelperSuite/requirements.txt
 fi
 
-echo "✅ ComfyUI pronto"
+echo "  \u2705 VideoHelperSuite pronto"
 
 # ------------------------------------------------------------
-# PASSO 2 — Nodes necessários
-# ------------------------------------------------------------
-echo ""
-echo "[2/5] Instalar nodes..."
-
-cd "$COMFYUI_DIR/custom_nodes"
-
-git clone https://github.com/Lightricks/ComfyUI-LTXVideo || true
-git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite || true
-
-echo "✅ Nodes prontos"
-
-# ------------------------------------------------------------
-# PASSO 3 — MODELO LTX
+# PASSO 3 \u2014 Criar estrutura de pastas
 # ------------------------------------------------------------
 echo ""
-echo "[3/5] Download modelo LTX..."
+echo "[3/6] Criar pastas..."
 
-cd "$COMFYUI_DIR/models/checkpoints"
+mkdir -p "$MODELS/diffusion_models"
+mkdir -p "$MODELS/text_encoders"
+mkdir -p "$MODELS/vae"
+mkdir -p "$MODELS/clip_vision"
+mkdir -p "$COMFY/input/kika_ep1"
+mkdir -p "$COMFY/output/kika_ep1"
 
-wget -c https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltx-video.safetensors \
-     -O ltx-video.safetensors
+echo "  \u2705 Pastas criadas"
 
-if [ -f "ltx-video.safetensors" ]; then
-    SIZE=$(du -sh ltx-video.safetensors | cut -f1)
-    echo "  ✅ Modelo LTX (${SIZE})"
-else
-    echo "  ❌ ERRO download modelo"
-    exit 1
+# ------------------------------------------------------------
+# PASSO 4 \u2014 Download modelos Wan 2.2 I2V 14B FP8
+# Fonte: Comfy-Org/Wan_2.2_ComfyUI_Repackaged (oficial)
+# ------------------------------------------------------------
+echo ""
+echo "[4/6] Download modelos Wan 2.2..."
+echo "  \u26a0\ufe0f  ~38GB total \u2014 pode demorar 15-30 min"
+
+download() {
+    local URL="$1"
+    local DEST="$2"
+    local NAME=$(basename "$DEST")
+
+    if [ -f "$DEST" ] && [ $(stat -c%s "$DEST") -gt 1000000 ]; then
+        echo "  \u23ed\ufe0f  $NAME j\u00e1 existe \u2014 skip"
+        return 0
+    fi
+
+    echo "  \u2b07\ufe0f  $NAME..."
+    wget -q --show-progress -c "$URL" -O "$DEST"
+
+    if [ -f "$DEST" ] && [ $(stat -c%s "$DEST") -gt 1000000 ]; then
+        SIZE=$(du -sh "$DEST" | cut -f1)
+        echo "  \u2705 $NAME (${SIZE})"
+    else
+        echo "  \u274c ERRO: $NAME falhou"
+        exit 1
+    fi
+}
+
+# Diffusion models \u2014 I2V high + low noise (ambos obrigat\u00f3rios)
+download \
+    "$HF/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" \
+    "$MODELS/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"
+
+download \
+    "$HF/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" \
+    "$MODELS/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors"
+
+# Text encoder UMT5 FP8
+download \
+    "$HF/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
+    "$MODELS/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+
+# VAE
+download \
+    "$HF/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" \
+    "$MODELS/vae/wan_2.1_vae.safetensors"
+
+# CLIP Vision (de Wan 2.1 \u2014 compat\u00edvel com 2.2)
+download \
+    "$HF/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" \
+    "$MODELS/clip_vision/clip_vision_h.safetensors"
+
+echo ""
+echo "  \ud83d\udce6 Modelos descarregados:"
+du -sh "$MODELS/diffusion_models/"*.safetensors 2>/dev/null | sort -h
+du -sh "$MODELS/text_encoders/"*.safetensors 2>/dev/null
+du -sh "$MODELS/vae/"*.safetensors 2>/dev/null
+du -sh "$MODELS/clip_vision/"*.safetensors 2>/dev/null
+
+# ------------------------------------------------------------
+# PASSO 5 \u2014 Verificar espa\u00e7o em disco
+# ------------------------------------------------------------
+echo ""
+echo "[5/6] Verificar disco..."
+
+LIVRE=$(df -BG /workspace | awk 'NR==2{print $4}' | tr -d 'G')
+echo "  Espa\u00e7o livre: ${LIVRE}GB"
+
+if [ "$LIVRE" -lt 5 ]; then
+    echo "  \u26a0\ufe0f  AVISO: Menos de 5GB livres \u2014 considera disco maior"
 fi
 
-# ------------------------------------------------------------
-# PASSO 4 — Pastas projeto
-# ------------------------------------------------------------
-echo ""
-echo "[4/5] Preparar pastas..."
-
-mkdir -p "$COMFYUI_DIR/input/kika_ep1"
-mkdir -p "$COMFYUI_DIR/output/kika_ep1"
+echo "  \u2705 Disco OK"
 
 # ------------------------------------------------------------
-# PASSO 5 — GUIA
+# PASSO 6 \u2014 Lan\u00e7ar ComfyUI
 # ------------------------------------------------------------
 echo ""
-echo "[5/5] Criar guia..."
+echo "[6/6] A lan\u00e7ar ComfyUI..."
 
-cat > "$COMFYUI_DIR/input/kika_ep1/COMO_USAR.txt" << 'EOF'
-============================================================
-PROJECTO KIKA — LTX VIDEO
-============================================================
+cd "$COMFY"
 
-Workflow:
-Load Image → LTX Video → Save Video
-
-SETTINGS:
-Frames: 24
-FPS: 12
-Duration: ~2s
-
-PROMPT BASE:
-subtle natural motion, small movement, stable identity,
-no deformation, no character change
-
-NOTA:
-menos movimento = melhor consistência
-
-============================================================
-EOF
-
-echo ""
-echo "================================================"
-echo "  SETUP LTX COMPLETO ✅"
-echo "================================================"
-echo "ComfyUI pronto com LTX"
-echo "Log: $LOG"
-echo "================================================"
+# Flags optimizadas para A100 40GB
+python main.py \
+    --listen 0.0.0.0 \
+    --port 8188 \
+    --fp16-vae \
